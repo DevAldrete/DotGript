@@ -1,0 +1,19 @@
+[project]
+name = "gript"
+version = "0.1.0"
+description = "A Fantastic DevOps Tool"
+requires-python = ">=3.13"
+dependencies = [
+    "gitpython>=3.1.45",
+    "pydantic-ai>=0.4.9",
+    "typer>=0.16.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+gript = "gript.main:app"
+
+
