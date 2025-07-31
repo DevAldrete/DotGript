@@ -17,5 +17,50 @@
     "master",
     "develop"
   ],
-  "max_commit_message_length": 72
+  "max_commit_message_length": 72,
+  "ai_config": {
+    "default_personality": "sexy",
+    "embedding_model": "text-embedding-3-small",
+    "embedding_provider": "openai",
+    "chat_model": "gpt-4o-mini",
+    "chat_provider": "openrouter",
+    "chunk_size": 1300,
+    "chunk_overlap": 200,
+    "max_tokens_per_request": 4000,
+    "index_file_types": [
+      ".py",
+      ".js",
+      ".ts",
+      ".md",
+      ".txt",
+      ".json",
+      ".yaml",
+      ".yml",
+      ".toml"
+    ],
+    "exclude_patterns": [
+      "__pycache__",
+      "node_modules",
+      ".git",
+      "*.pyc",
+      "*.log"
+    ],
+    "auto_index_on_change": false,
+    "usage_tracking": {
+      "enabled": true,
+      "track_tokens": true,
+      "track_costs": true,
+      "monthly_budget_usd": 30.0
+    }
+  },
+  "ai_usage_stats": {
+    "total_requests": 0,
+    "total_tokens": 0,
+    "total_cost_usd": 0.0,
+    "monthly_requests": 0,
+    "monthly_tokens": 0,
+    "monthly_cost_usd": 0.0,
+    "last_reset_date": null,
+    "last_index_update": null
+  }
 }

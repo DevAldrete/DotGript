@@ -1,13 +1,18 @@
 from dataclasses import dataclass
 import enum
+import asyncio
+from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 from gript.core.settings import settings
+from gript.core.ai_codebase import CodebaseIndexer, CodebaseAnalysisAgent
 from typer import Typer
 from rich import print
+from rich.table import Table
+from rich.console import Console
 
 app = Typer()
 
@@ -158,7 +163,7 @@ def get_personality_info(persona: Personality) -> str:
 
 
 # COMMANDS
-@app.command("tell")
+@app.command("ask")
 def wizardry(msg: str, persona: Personality = Personality.SEXY):
     """Invoke wizardry for generating a simple message"""
     personality_info = get_personality_info(persona=persona)
@@ -203,6 +208,251 @@ def search(
         print(f"[red]Error: {e}[/red]")
 
 
-@app.command("config")
-def set_config():
-    print("Set proper config!")
+@app.command("setup")
+def setup_ai_config(project_root: str = "."):
+    """Interactive setup for AI configuration."""
+    from gript.core.ai_config import AIConfigManager
+    
+    project_path = Path(project_root).resolve()
+    config_manager = AIConfigManager(project_path)
+    
+    config_manager.setup_ai_config()
+
+
+@app.command("config-show")
+def show_ai_config(project_root: str = "."):
+    """Show current AI configuration."""
+    from gript.core.ai_config import AIConfigManager
+    
+    project_path = Path(project_root).resolve()
+    config_manager = AIConfigManager(project_path)
+    
+    config_manager.show_current_config()
+
+
+@app.command("budget")
+def update_budget(
+    amount: float,
+    project_root: str = ".",
+):
+    """Update monthly AI usage budget."""
+    from gript.core.ai_config import AIConfigManager
+    
+    project_path = Path(project_root).resolve()
+    config_manager = AIConfigManager(project_path)
+    
+    config_manager.update_budget(amount)
+
+
+@app.command("reset-stats")
+def reset_usage_stats(project_root: str = "."):
+    """Reset AI usage statistics."""
+    from gript.core.ai_config import AIConfigManager
+    
+    project_path = Path(project_root).resolve()
+    config_manager = AIConfigManager(project_path)
+    
+    config_manager.reset_usage_stats()
+
+
+@app.command("help")
+def show_ai_help():
+    """Show help information about AI features."""
+    from gript.core.ai_init import display_ai_features_help
+    
+    display_ai_features_help()
+
+
+# CODEBASE ANALYSIS COMMANDS
+@app.command("analyze")
+def analyze_codebase(
+    query: str,
+    persona: Personality = Personality.GEEK,
+    index_first: bool = False,
+    project_root: str = ".",
+):
+    """Analyze the codebase and answer questions about it using AI."""
+    console = Console()
+    project_path = Path(project_root).resolve()
+    config_path = project_path / ".gript" / ".conf.json"
+    
+    if not config_path.exists():
+        print("[red]❌ No .gript configuration found. Please run 'gript git init' first.[/red]")
+        return
+    
+    try:
+        # Initialize indexer and analysis agent
+        indexer = CodebaseIndexer(project_path, config_path)
+        analysis_agent = CodebaseAnalysisAgent(indexer)
+        
+        # Index codebase if requested or if no index exists
+        if index_first or not indexer.collection.count():
+            console.print("🔍 Indexing codebase...")
+            indexer.index_codebase()
+        
+        # Get personality info
+        persona_name = persona.value.lower()
+        
+        console.print(f"🤖 Analyzing codebase with {persona_name} personality...")
+        
+        # Run analysis
+        async def run_analysis():
+            return await analysis_agent.analyze_codebase(query, persona_name)
+        
+        response = asyncio.run(run_analysis())
+        
+        # Display usage stats
+        stats = indexer.get_usage_stats()
+        usage_table = Table(title="AI Usage Stats")
+        usage_table.add_column("Metric", style="cyan")
+        usage_table.add_column("Value", style="green")
+        
+        usage_table.add_row("Monthly Requests", str(stats.monthly_requests))
+        usage_table.add_row("Monthly Tokens", str(stats.monthly_tokens))
+        usage_table.add_row("Monthly Cost", f"${stats.monthly_cost_usd:.4f}")
+        usage_table.add_row("Total Requests", str(stats.total_requests))
+        
+        console.print("\n")
+        console.print(usage_table)
+        console.print("\n")
+        print(response)
+        
+        # Cleanup
+        indexer.cleanup()
+        
+    except Exception as e:
+        print(f"[red]❌ Error analyzing codebase: {e}[/red]")
+
+
+@app.command("index")
+def index_codebase(
+    project_root: str = ".",
+    force: bool = False,
+):
+    """Index the codebase for AI analysis."""
+    console = Console()
+    project_path = Path(project_root).resolve()
+    config_path = project_path / ".gript" / ".conf.json"
+    
+    if not config_path.exists():
+        print("[red]❌ No .gript configuration found. Please run 'gript git init' first.[/red]")
+        return
+    
+    try:
+        indexer = CodebaseIndexer(project_path, config_path)
+        indexer.index_codebase(force_reindex=force)
+        
+        # Show stats
+        collection_count = indexer.collection.count()
+        console.print(f"📊 Vector database contains {collection_count} code chunks")
+        
+        indexer.cleanup()
+        
+    except Exception as e:
+        print(f"[red]❌ Error indexing codebase: {e}[/red]")
+
+
+@app.command("search-code")
+def search_similar_code(
+    query: str,
+    project_root: str = ".",
+    max_results: int = 5,
+):
+    """Search for code similar to the query using embeddings."""
+    console = Console()
+    project_path = Path(project_root).resolve()
+    config_path = project_path / ".gript" / ".conf.json"
+    
+    if not config_path.exists():
+        print("[red]❌ No .gript configuration found. Please run 'gript git init' first.[/red]")
+        return
+    
+    try:
+        indexer = CodebaseIndexer(project_path, config_path)
+        results = indexer.search_similar_code(query, n_results=max_results)
+        
+        if not results:
+            print("[yellow]No similar code found. Try indexing first with 'gript ai index'[/yellow]")
+            return
+        
+        results_table = Table(title=f"Similar Code for: '{query}'")
+        results_table.add_column("File", style="cyan")
+        results_table.add_column("Lines", style="yellow")
+        results_table.add_column("Similarity", style="green")
+        results_table.add_column("Language", style="magenta")
+        
+        for result in results:
+            metadata = result["metadata"]
+            similarity = f"{result['similarity']:.2f}"
+            lines = f"{metadata['start_line']}-{metadata['end_line']}"
+            
+            results_table.add_row(
+                metadata["file_path"],
+                lines,
+                similarity,
+                metadata["language"]
+            )
+        
+        console.print(results_table)
+        
+        # Show first result's content
+        if results:
+            console.print("\n[bold]Most similar code:[/bold]")
+            console.print(f"[cyan]{results[0]['metadata']['file_path']}[/cyan]")
+            console.print("```")
+            console.print(results[0]["content"][:500] + ("..." if len(results[0]["content"]) > 500 else ""))
+            console.print("```")
+        
+        indexer.cleanup()
+        
+    except Exception as e:
+        print(f"[red]❌ Error searching code: {e}[/red]")
+
+
+@app.command("usage")
+def show_usage_stats(project_root: str = "."):
+    """Show AI usage statistics."""
+    console = Console()
+    project_path = Path(project_root).resolve()
+    config_path = project_path / ".gript" / ".conf.json"
+    
+    if not config_path.exists():
+        print("[red]❌ No .gript configuration found. Please run 'gript git init' first.[/red]")
+        return
+    
+    try:
+        indexer = CodebaseIndexer(project_path, config_path)
+        stats = indexer.get_usage_stats()
+        
+        # Monthly stats table
+        monthly_table = Table(title="Monthly AI Usage")
+        monthly_table.add_column("Metric", style="cyan")
+        monthly_table.add_column("Value", style="green")
+        
+        monthly_table.add_row("Requests", str(stats.monthly_requests))
+        monthly_table.add_row("Tokens", str(stats.monthly_tokens))
+        monthly_table.add_row("Cost (USD)", f"${stats.monthly_cost_usd:.4f}")
+        monthly_table.add_row("Last Reset", stats.last_reset_date or "Never")
+        
+        # Total stats table
+        total_table = Table(title="Total AI Usage")
+        total_table.add_column("Metric", style="cyan")
+        total_table.add_column("Value", style="green")
+        
+        total_table.add_row("Total Requests", str(stats.total_requests))
+        total_table.add_row("Total Tokens", str(stats.total_tokens))
+        total_table.add_row("Total Cost (USD)", f"${stats.total_cost_usd:.4f}")
+        total_table.add_row("Last Index Update", stats.last_index_update or "Never")
+        
+        console.print(monthly_table)
+        console.print(total_table)
+        
+        # Budget warning
+        ai_config = indexer.config.get("ai_config", {})
+        budget = ai_config.get("usage_tracking", {}).get("monthly_budget_usd", 50.0)
+        
+        if stats.monthly_cost_usd > budget * 0.8:
+            console.print(f"[yellow]⚠️  Warning: You've used {stats.monthly_cost_usd/budget:.1%} of your monthly budget (${budget})[/yellow]")
+        
+    except Exception as e:
+        print(f"[red]❌ Error getting usage stats: {e}[/red]")

@@ -11,7 +11,7 @@ class Settings:
 
     @property
     def groq_api_key(self):
-        return getenv("OPENROUTER_API_KEY", "")
+        return getenv("GROQ_API_KEY", "")
 
     @property
     def openai_api_key(self):
