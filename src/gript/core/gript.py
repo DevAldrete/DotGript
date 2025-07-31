@@ -10,6 +10,8 @@ import json
 import time
 import glob
 import hashlib
+import tempfile
+import textwrap
 import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -88,7 +90,6 @@ class AutomationConfig:
     auto_delete_merged_branches: bool = True
     semantic_versioning: bool = True
     auto_changelog: bool = True
-    pre_commit_hooks: bool = True
     conflict_resolution: ConflictResolution = ConflictResolution.MANUAL
     merge_strategy: MergeStrategy = MergeStrategy.SQUASH
     protected_branches: List[str] = field(
@@ -128,7 +129,7 @@ class BranchInfo:
 class GitAutomationSuite:
     """Enterprise-grade Git automation suite with complete functionality"""
 
-    def __init__(self, repo_path: str = ".", config: AutomationConfig = None):
+    def __init__(self, repo_path: str = ".", config: Optional[AutomationConfig] = None):
         try:
             self.repo = Repo(repo_path)
             self.config = config or AutomationConfig()
@@ -145,12 +146,8 @@ class GitAutomationSuite:
         config_dir.mkdir(exist_ok=True)
 
         # Save configuration
-        config_file = config_dir / "config.json"
+        config_file = config_dir / ".conf.json"
         self._save_config(config_file)
-
-        # Setup pre-commit hooks if enabled
-        if self.config.pre_commit_hooks:
-            self._setup_pre_commit_hooks()
 
     def _save_config(self, config_file: Path):
         """Save current configuration to file"""
@@ -175,30 +172,30 @@ class GitAutomationSuite:
         with open(config_file, "w") as f:
             json.dump(config_dict, f, indent=2)
 
-    def _setup_pre_commit_hooks(self):
-        """Setup pre-commit hooks for validation"""
-        hooks_dir = Path(self.repo.git_dir) / "hooks"
-        hooks_dir.mkdir(exist_ok=True)
-
-        pre_commit_hook = hooks_dir / "pre-commit"
-        hook_content = """#!/bin/sh
-# DotGript pre-commit hook
-python -c "
-import sys
-sys.path.append('.')
-from git_automation_suite import GitAutomationSuite
-suite = GitAutomationSuite()
-result = suite.validate_commit_message()
-if not result['valid']:
-    print(f'Commit message validation failed: {result[\"error\"]}')
-    sys.exit(1)
-"
-"""
-        pre_commit_hook.write_text(hook_content)
-        pre_commit_hook.chmod(0o755)
+    #     def _setup_pre_commit_hooks(self):
+    #         """Setup pre-commit hooks for validation"""
+    #         hooks_dir = Path(self.repo.git_dir) / "hooks"
+    #         hooks_dir.mkdir(exist_ok=True)
+    #
+    #         pre_commit_hook = hooks_dir / "pre-commit"
+    #         hook_content = """#!/bin/sh
+    # # DotGript pre-commit hook
+    # python -c "
+    # import sys
+    # sys.path.append('.')
+    # from gript.core.gript import GitAutomationSuite
+    # suite = GitAutomationSuite()
+    # result = suite.validate_commit_message()
+    # if not result['valid']:
+    #     print(f"Commit message validation failed: {result['error']}")
+    #     sys.exit(1)
+    # "
+    # """
+    #         pre_commit_hook.write_text(hook_content)
+    #         pre_commit_hook.chmod(0o755)
 
     # ====================
-    # SMART FEATURE BRANCH WORKFLOWS (Enhanced)
+    # SMART FEATURE BRANCH WORKFLOWS
     # ====================
 
     def smart_feature_start(
@@ -413,7 +410,7 @@ if not result['valid']:
     def smart_commit(
         self,
         message: str,
-        files: Optional[List[str]] = None,
+        files: Optional[List[str | None]] = None,
         commit_type: Optional[ConventionalCommitType] = None,
         scope: Optional[str] = None,
         breaking_change: bool = False,
@@ -447,19 +444,19 @@ if not result['valid']:
         )
 
         # Pre-commit validation
-        pre_commit_result = self._run_pre_commit_hooks(files)
-        if not pre_commit_result["success"]:
-            return {
-                "success": False,
-                "error": f"Pre-commit hook failed: {pre_commit_result['error']}",
-            }
+        # pre_commit_result = self._run_pre_commit_hooks(files)
+        # if not pre_commit_result["success"]:
+        #     return {
+        #         "success": False,
+        #         "error": f"Pre-commit hook failed: {pre_commit_result['error']}",
+        #     }
 
         # Commit with metadata
         try:
             commit = self.repo.index.commit(formatted_message)
 
             # Post-commit actions
-            self._post_commit_actions(commit, files)
+            # self._post_commit_actions(commit, files)
 
             return {
                 "success": True,
@@ -522,14 +519,22 @@ if not result['valid']:
             commit_type=selected["suggested_commit_type"],
         )
 
-    def validate_commit_message(self, message: Optional[str] = None) -> Dict[str, Any]:
+    def validate_commit_message(
+        self, message: Optional[str | bytes] = None
+    ) -> Dict[str, Any]:
         """Validate commit message against configured rules"""
         if message is None:
             # Get the last commit message for validation
             try:
-                message = self.repo.head.commit.message.strip()
-            except:
-                return {"valid": False, "error": "No commit message to validate"}
+                message = self.repo.head.commit.message
+                if message is not None:
+                    message = message.strip()
+                    raise ValueError("The last commit message was empty!")
+            except Exception as e:
+                return {
+                    "valid": False,
+                    "error": "No commit message to validate",
+                }
 
         return self._validate_commit_message(message)
 
@@ -657,7 +662,7 @@ if not result['valid']:
             base_commit = self.repo.heads[self.branch_strategy.main_branch].commit
 
         # Create hotfix branch
-        self.repo.create_head(hotfix_branch, base_commit).checkout()
+        self.repo.create_head(hotfix_branch, base_commit.hexsha).checkout()
 
         # Calculate target version if not provided
         if not target_version:
@@ -746,9 +751,409 @@ if not result['valid']:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    # ====================
-    # HELPER METHODS
-    # ====================
+    # =============================================================================
+    #  Helper Methods Implementation
+    # =============================================================================
+
+    # ---------------------------------------------------------------------------
+    #  Branch utilities
+    # ---------------------------------------------------------------------------
+
+    def _sanitize_branch_name(self, name: str) -> str:
+        """Convert any string to a git-safe branch name."""
+        name = re.sub(r"[^A-Za-z0-9\-_]+", "-", name).strip("-_")
+        return re.sub(r"-+", "-", name).lower()
+
+    def _ensure_branch_updated(self, branch: str):
+        """Checkout <branch>, pull latest, return to original branch."""
+        original = self.repo.active_branch.name
+        if branch not in [b.name for b in self.repo.branches]:
+            raise ValueError(f"Branch '{branch}' does not exist locally")
+        self.repo.heads[branch].checkout()
+        if self.repo.remotes:
+            try:
+                self.repo.remotes.origin.pull(branch)
+            except GitCommandError:
+                pass  # Remote might not exist
+        if self.repo.active_branch.name != original:
+            self.repo.heads[original].checkout()
+
+    def _get_changed_files(self) -> List[str | None]:
+        """Return list of unstaged and staged files that have modifications."""
+        return [item.a_path for item in self.repo.index.diff(None)] + [
+            item.a_path for item in self.repo.index.diff("HEAD")
+        ]
+
+    def _get_staged_files(self) -> List[str | None]:
+        """Return list of files currently staged for commit."""
+        return [item.a_path for item in self.repo.index.diff("HEAD")]
+
+    def _get_changed_files_with_status(self) -> List[Dict[str, str]]:
+        """Return list of dicts: {path, status, insertions, deletions}."""
+        files = []
+        for item in self.repo.index.diff(None, cached=False):
+            if item.diff is not None:
+                files.append(
+                    {
+                        "path": item.a_path,
+                        "status": item.change_type,
+                        "insertions": item.diff.count("\n+"),
+                        "deletions": item.diff.count("\n-"),
+                    }
+                )
+        return files
+
+    # ---------------------------------------------------------------------------
+    #  Commit helpers
+    # ---------------------------------------------------------------------------
+
+    def _validate_commit_message(
+        self,
+        message: str | bytes,
+        commit_type: Optional[ConventionalCommitType] = None,
+        scope: Optional[str] = None,
+        breaking: bool = False,
+    ) -> Dict[str, Any]:
+        """Core logic for commit-message validation."""
+        if self.config.enforce_conventional_commits:
+            pattern = r"^(?P<type>\w+)(?:\((?P<scope>[^)]+)\))?(!)?:( .+)$"
+            match = re.match(pattern, str(message))
+            if not match:
+                return {
+                    "valid": False,
+                    "error": "Message must follow conventional-commit spec",
+                }
+            if breaking and not match.group("type").endswith("!"):
+                return {"valid": False, "error": "Breaking change must end with '!'"}
+        if len(message) > self.config.max_commit_message_length:
+            return {"valid": False, "error": "Message too long"}
+        return {"valid": True}
+
+    def _format_commit_message(
+        self,
+        message: str,
+        commit_type: Optional[ConventionalCommitType],
+        scope: Optional[str],
+        breaking: bool,
+    ) -> str:
+        """Return a fully-formatted commit line."""
+        if not self.config.enforce_conventional_commits:
+            return message
+        prefix = commit_type.value if commit_type else "chore"
+        scope_part = f"({scope})" if scope else ""
+        bang = "!" if breaking else ""
+        return f"{prefix}{scope_part}{bang}: {message}"
+
+    # def _run_pre_commit_hooks(self, files: List[str]) -> Dict[str, Any]:
+    #     """Execute pre-commit checks (linting, tests, etc.) if configured."""
+    #     if not self.config.pre_commit_hooks:
+    #         return {"success": True}
+    #     # Minimal placeholder: could invoke `pre-commit run --files ...`
+    #     return {"success": True}
+
+    # def _post_commit_actions(self, commit: Commit, files: List[str]):
+    #     """Run any post-commit automation (stats, notifications, etc.)."""
+    #     pass  # Hook for future extension
+
+    def _count_insertions(self, commit: Commit) -> int:
+        return commit.stats.total["insertions"]
+
+    def _count_deletions(self, commit: Commit) -> int:
+        return commit.stats.total["deletions"]
+
+    # ---------------------------------------------------------------------------
+    #  AI-like suggestion helpers
+    # ---------------------------------------------------------------------------
+
+    def _group_files_by_pattern(
+        self, files: List[Dict[str, str]]
+    ) -> Dict[str, List[str]]:
+        """Bucket files by extension/type for smarter suggestions."""
+        buckets = defaultdict(list)
+        for f in files:
+            ext = Path(f["path"]).suffix.lower()
+            if ext in {".py", ".js", ".ts", ".java", ".go", ".rs"}:
+                buckets["src"].append(f["path"])
+            elif ext in {".json", ".yml", ".yaml", ".toml", ".ini"}:
+                buckets["config"].append(f["path"])
+            elif "test" in f["path"].lower():
+                buckets["test"].append(f["path"])
+            elif ext in {".md", ".rst"}:
+                buckets["docs"].append(f["path"])
+            else:
+                buckets["misc"].append(f["path"])
+        return dict(buckets)
+
+    def _suggest_commit_type_for_group(
+        self, group_type: str, files: List[str]
+    ) -> ConventionalCommitType:
+        """Heuristic mapping from file group to commit type."""
+        mapping = {
+            "src": ConventionalCommitType.FEAT,
+            "test": ConventionalCommitType.TEST,
+            "docs": ConventionalCommitType.DOCS,
+            "config": ConventionalCommitType.CHORE,
+            "misc": ConventionalCommitType.CHORE,
+        }
+        return mapping.get(group_type, ConventionalCommitType.CHORE)
+
+    def _suggest_scope(self, files: List[str]) -> Optional[str]:
+        """Guess a sensible scope (folder name or domain)."""
+        try:
+            # Use the most common root folder among changed files
+            folders = [str(Path(f).parent) for f in files]
+            return Counter(folders).most_common(1)[0][0]
+        except IndexError:
+            return None
+
+    def _generate_commit_messages(self, group_type: str, files: List[str]) -> List[str]:
+        """Return 2-3 message suggestions."""
+        verbs = {
+            "feat": "add",
+            "fix": "correct",
+            "docs": "update",
+            "test": "add tests for",
+            "chore": "update",
+        }
+        ctype = self._suggest_commit_type_for_group(group_type, files)
+        verb = verbs.get(ctype.value, "update")
+        base = f"{verb} {len(files)} {group_type} file(s)"
+        return [
+            base,
+            f"{base} (refactor)",
+            f"{base} and bump version",
+        ]
+
+    def _calculate_suggestion_confidence(
+        self, group_type: str, files: List[str]
+    ) -> float:
+        """Naïve confidence score between 0 and 1."""
+        # The more uniform the file types, the higher the confidence
+        exts = {Path(f).suffix for f in files}
+        return max(0.1, 1.0 - (len(exts) * 0.25))
+
+    def _interactive_commit_selection(
+        self, suggestions: List[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """Prompt user to pick a suggestion."""
+        from rich.prompt import Prompt, IntPrompt
+
+        table = Table(title="Commit Suggestions")
+        table.add_column("#", justify="right")
+        table.add_column("Type")
+        table.add_column("Files")
+        table.add_column("Message")
+        table.add_column("Confidence")
+
+        for idx, s in enumerate(suggestions, 1):
+            table.add_row(
+                str(idx),
+                s["suggested_commit_type"].value,
+                str(len(s["files"])),
+                s["suggested_messages"][0],
+                f"{s['confidence']:.2f}",
+            )
+        self.console.print(table)
+
+        choice = IntPrompt.ask(
+            "Pick suggestion # (0 to cancel)",
+            choices=[str(i) for i in range(len(suggestions) + 1)],
+        )
+        return None if choice == 0 else suggestions[choice - 1]
+
+    # ---------------------------------------------------------------------------
+    #  Version & changelog helpers
+    # ---------------------------------------------------------------------------
+
+    def _get_current_version(self) -> str:
+        """Return current semver from package.json, pyproject.toml, or git tags."""
+        # 1) pyproject.toml
+        pyproject = Path(self.repo.working_dir) / "pyproject.toml"
+        if pyproject.exists():
+            data = toml.loads(pyproject.read_text())
+            return str(data.get("tool", {}).get("poetry", {}).get("version", "0.1.0"))
+
+        # 2) package.json
+        pkg_json = Path(self.repo.working_dir) / "package.json"
+        if pkg_json.exists():
+            data = json.loads(pkg_json.read_text())
+            return str(data.get("version", "0.1.0"))
+
+        # 3) latest git tag
+        tags = sorted(self.repo.tags, key=lambda t: t.commit.committed_datetime)
+        if tags:
+            tag = tags[-1].name
+            if tag.startswith("v"):
+                tag = tag[1:]
+            return str(tag)
+
+        return "0.1.0"
+
+    def _calculate_next_version(
+        self, current: str, bump: str, pre: bool = False
+    ) -> str:
+        """Return next semver string."""
+        ver = semver.VersionInfo.parse(current)
+        if pre:
+            return str(ver.bump_prerelease("rc"))
+        if bump == "major":
+            return str(ver.bump_major())
+        if bump == "minor":
+            return str(ver.bump_minor())
+        return str(ver.bump_patch())
+
+    def _validate_release_state(self) -> Dict[str, Any]:
+        """Ensure repo is ready for release (clean, on correct branch, etc.)."""
+        if self.repo.is_dirty():
+            return {"valid": False, "error": "Working directory must be clean"}
+        if self.repo.active_branch.name not in {
+            self.branch_strategy.main_branch,
+            self.branch_strategy.develop_branch,
+        }:
+            return {"valid": False, "error": "Must be on main or develop branch"}
+        return {"valid": True}
+
+    def _generate_changelog_preview(self, from_version: str) -> str:
+        """Return a short preview of changes since <from_version>."""
+        commits = list(self.repo.iter_commits(f"v{from_version}..HEAD"))
+        lines = [f"- {c.message.splitlines()[0]}" for c in commits]
+        return "\n".join(lines[:10]) + ("\n..." if len(lines) > 10 else "")
+
+    def _generate_changelog(self, old: str, new: str) -> str:
+        """Real changelog generator (simple for now)."""
+        commits = list(self.repo.iter_commits(f"v{old}..HEAD"))
+        grouped = defaultdict(list)
+        for c in commits:
+            msg = c.message.splitlines()[0]
+            if msg.startswith("feat"):
+                grouped["Features"].append(msg)
+            elif msg.startswith("fix"):
+                grouped["Bug fixes"].append(msg)
+            else:
+                grouped["Other"].append(msg)
+
+        out = [f"## [{new}] – {datetime.now().strftime('%Y-%m-%d')}"]
+        for section, items in grouped.items():
+            out.append(f"### {section}")
+            out.extend(f"- {i}" for i in items)
+        return "\n".join(out)
+
+    def _update_version_files(self, version: str) -> List[str]:
+        """Write new version to package.json / pyproject.toml and return list of changed files."""
+        updated = []
+
+        # pyproject.toml
+        pyproject = Path(self.repo.working_dir) / "pyproject.toml"
+        if pyproject.exists():
+            data = toml.loads(pyproject.read_text())
+            data["tool"]["poetry"]["version"] = version
+            pyproject.write_text(toml.dumps(data))
+            updated.append(str(pyproject))
+
+        # package.json
+        pkg_json = Path(self.repo.working_dir) / "package.json"
+        if pkg_json.exists():
+            data = json.loads(pkg_json.read_text())
+            data["version"] = version
+            pkg_json.write_text(json.dumps(data, indent=2))
+            updated.append(str(pkg_json))
+
+        return updated
+
+    def _update_changelog_file(self, content: str, version: str):
+        """Prepend changelog content to CHANGELOG.md (create if absent)."""
+        changelog_path = Path(self.repo.working_dir) / "CHANGELOG.md"
+        header = "# Changelog\n\n"
+        if changelog_path.exists():
+            old = changelog_path.read_text()
+            if old.startswith("# Changelog"):
+                old = old[len(header) :].lstrip()
+            new_content = header + content + "\n\n" + old
+        else:
+            new_content = header + content
+        changelog_path.write_text(new_content)
+
+    def _merge_release_to_main(
+        self, release_branch: str, version: str
+    ) -> Dict[str, Any]:
+        """Finish GitFlow release: merge release → main → tag → develop."""
+        self.repo.heads[self.branch_strategy.main_branch].checkout()
+        self.repo.git.merge("--no-ff", release_branch)
+        return {"merged_to_main": True}
+
+    # ---------------------------------------------------------------------------
+    #  Conflict resolution
+    # ---------------------------------------------------------------------------
+
+    def _auto_resolve_conflicts(self) -> Dict[str, Any]:
+        """Very basic conflict resolver: choose ours/theirs/auto based on config."""
+        if self.config.conflict_resolution == ConflictResolution.OURS:
+            self.repo.git.checkout("--ours", ".")
+        elif self.config.conflict_resolution == ConflictResolution.THEIRS:
+            self.repo.git.checkout("--theirs", ".")
+        elif self.config.conflict_resolution == ConflictResolution.AUTO:
+            # Attempt merge tool auto-resolution
+            try:
+                self.repo.git.add(".")
+                return {"resolved": True, "method": "auto"}
+            except GitCommandError as e:
+                return {"resolved": False, "error": str(e)}
+        self.repo.git.add(".")
+        return {"resolved": True, "method": self.config.conflict_resolution.value}
+
+    # ---------------------------------------------------------------------------
+    #  Branch inspection
+    # ---------------------------------------------------------------------------
+
+    def _get_branch_info(self, branch_name: str) -> BranchInfo:
+        """Return BranchInfo dataclass for given branch."""
+        branch = self.repo.branches[branch_name]
+        tracking = branch.tracking_branch()
+        tracking_name = tracking.name if tracking else None
+
+        # ahead/behind vs upstream
+        if tracking:
+            commits_ahead = list(self.repo.iter_commits(f"{tracking}..{branch}"))
+            commits_behind = list(self.repo.iter_commits(f"{branch}..{tracking}"))
+        else:
+            commits_ahead = commits_behind = []
+
+        last_commit = branch.commit
+        is_merged = branch.commit in self.repo.iter_commits(
+            self.branch_strategy.main_branch
+        )
+        stale_days = 30
+        is_stale = (
+            datetime.utcnow() - last_commit.committed_datetime.replace(tzinfo=None)
+        ).days > stale_days
+
+        return BranchInfo(
+            name=branch_name,
+            tracking_branch=tracking_name,
+            ahead=len(commits_ahead),
+            behind=len(commits_behind),
+            last_commit=last_commit.hexsha,
+            last_commit_date=last_commit.committed_datetime,
+            is_merged=is_merged,
+            is_stale=is_stale,
+        )
+
+    def _generate_squash_commit_message(
+        self, branch_name: str, commits: List[Commit]
+    ) -> str:
+        """Produce a single squash commit message for a feature branch."""
+        types = [c.message.split(":")[0].split("(")[0] for c in commits]
+        most_common = Counter(types).most_common(1)[0][0]
+        # Prefer feat/fix, fallback to most common
+        commit_type = (
+            ConventionalCommitType.FEAT
+            if "feat" in types
+            else ConventionalCommitType.FIX
+            if "fix" in types
+            else ConventionalCommitType(most_common)
+        )
+        feature_desc = branch_name.replace("-", " ").replace("_", " ").title()
+        return f"{commit_type.value}: {feature_desc}"
 
     def _interactive_feature_naming(
         self, initial_name: str, issue_number: Optional[int]
@@ -827,34 +1232,39 @@ if not result['valid']:
         if metadata_file.exists():
             metadata_file.unlink()
 
-    def _get_branch_info(self, branch_name: str) -> BranchInfo:
-        """Get comprehensive information about a branch"""
-        branch = self.repo.heads[branch_name]
 
-        # Calculate ahead/behind
-        ahead, behind = 0, 0
-        tracking_branch = None
+# ---------------------------------------------------------------------------
+#     Monkey-patch helpers into the class
+# ---------------------------------------------------------------------------
 
-        if branch.tracking_branch():
-            tracking_branch = branch.tracking_branch().name
-            try:
-                ahead, behind = self.repo.git.rev_list(
-                    "--left-right", "--count", f"{tracking_branch}...{branch_name}"
-                ).split("\t")
-                ahead, behind = int(ahead), int(behind)
-            except:
-                pass
 
-        # Check if branch is merged
-        is_merged = False
-        try:
-            self.repo.git.merge_base(
-                "--is-ancestor", branch_name, self.branch_strategy.main_branch
-            )
-            is_merged = True
-        except GitCommandError:
-            pass
-
-        # Check if branch is stale (older than 30 days)
-        last_commit_date = branch.commit.committed_datetime
-        is_stale = (datetime.now() - last_commit_date.replace(tzinfo=None)).days
+# GitAutomationSuite._sanitize_branch_name = _sanitize_branch_name
+# GitAutomationSuite._ensure_branch_updated = _ensure_branch_updated
+# GitAutomationSuite._get_changed_files = _get_changed_files
+# GitAutomationSuite._get_staged_files = _get_staged_files
+# GitAutomationSuite._get_changed_files_with_status = _get_changed_files_with_status
+# GitAutomationSuite._validate_commit_message = _validate_commit_message
+# GitAutomationSuite._format_commit_message = _format_commit_message
+# GitAutomationSuite._run_pre_commit_hooks = _run_pre_commit_hooks
+# GitAutomationSuite._post_commit_actions = _post_commit_actions
+# GitAutomationSuite._count_insertions = _count_insertions
+# GitAutomationSuite._count_deletions = _count_deletions
+# GitAutomationSuite._group_files_by_pattern = _group_files_by_pattern
+# GitAutomationSuite._suggest_commit_type_for_group = _suggest_commit_type_for_group
+# GitAutomationSuite._suggest_scope = _suggest_scope
+# GitAutomationSuite._generate_commit_messages = _generate_commit_messages
+# GitAutomationSuite._calculate_suggestion_confidence = (
+#     _calculate_suggestion_confidence
+# )
+# GitAutomationSuite._interactive_commit_selection = _interactive_commit_selection
+# GitAutomationSuite._get_current_version = _get_current_version
+# GitAutomationSuite._calculate_next_version = _calculate_next_version
+# GitAutomationSuite._validate_release_state = _validate_release_state
+# GitAutomationSuite._generate_changelog_preview = _generate_changelog_preview
+# GitAutomationSuite._generate_changelog = _generate_changelog
+# GitAutomationSuite._update_version_files = _update_version_files
+# GitAutomationSuite._update_changelog_file = _update_changelog_file
+# GitAutomationSuite._merge_release_to_main = _merge_release_to_main
+# GitAutomationSuite._auto_resolve_conflicts = _auto_resolve_conflicts
+# GitAutomationSuite._get_branch_info = _get_branch_info
+# GitAutomationSuite._generate_squash_commit_message = _generate_squash_commit_message

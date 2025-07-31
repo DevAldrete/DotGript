@@ -6,6 +6,9 @@ requires-python = ">=3.13"
 dependencies = [
     "gitpython>=3.1.45",
     "pydantic-ai>=0.4.9",
+    "pydantic-ai-slim[duckduckgo]>=0.4.9",
+    "semver>=3.0.4",
+    "toml>=0.10.2",
     "typer>=0.16.0",
 ]
 

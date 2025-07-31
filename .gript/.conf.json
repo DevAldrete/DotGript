@@ -1,0 +1,21 @@
+{
+  "workflow_type": "github_flow",
+  "branch_strategy": {
+    "main_branch": "main",
+    "develop_branch": "develop",
+    "feature_prefix": "feature/",
+    "hotfix_prefix": "hotfix/",
+    "release_prefix": "release/",
+    "bugfix_prefix": "bugfix/"
+  },
+  "enforce_conventional_commits": true,
+  "auto_squash_merge": true,
+  "semantic_versioning": true,
+  "auto_changelog": true,
+  "protected_branches": [
+    "main",
+    "master",
+    "develop"
+  ],
+  "max_commit_message_length": 72
+}
