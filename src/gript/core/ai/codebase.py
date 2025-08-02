@@ -63,7 +63,7 @@ class CodebaseWatcher(FileSystemEventHandler):
     def __init__(self, indexer: 'CodebaseIndexer'):
         self.indexer = indexer
         self.last_update = time.time()
-        self.update_threshold = 2.0  # Minimum seconds between updates
+        self.update_threshold = 8.0  # Minimum seconds between updates
     
     def on_modified(self, event):
         if event.is_directory:
@@ -90,7 +90,7 @@ class CodebaseIndexer:
         
         # Initialize vector database
         self.chroma_client = chromadb.PersistentClient(
-            path=str(project_root / ".gript" / "vector_db")
+            path=str(project_root / ".gript" / "chroma" / "vector_db")
         )
         self.collection = self.chroma_client.get_or_create_collection(
             name="codebase_chunks",
@@ -102,7 +102,7 @@ class CodebaseIndexer:
         
         # Initialize tokenizer for token counting
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
-        
+
         # File watcher for auto-indexing
         self.observer = None
         if self.config.get("ai_config", {}).get("auto_index_on_change", True):
@@ -118,7 +118,7 @@ class CodebaseIndexer:
     
     def _save_config(self):
         """Save configuration back to .gript/.conf.json"""
-        with open(self.config_path, 'w') as f:
+        with open(self.config_path, '+a') as f:
             json.dump(self.config, f, indent=2)
     
     def _setup_file_watcher(self):
@@ -444,8 +444,8 @@ Please provide a comprehensive analysis based on the codebase context provided a
         
         try:
             # Count tokens for usage tracking
-            prompt_tokens = self._count_tokens(query + str(context.dict()))
-            
+            prompt_tokens = self._count_tokens(query + str(context.model_dump()))
+
             # Run analysis
             response = await self.agent.run(query, deps=context)
             

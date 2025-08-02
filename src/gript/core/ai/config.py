@@ -10,6 +10,7 @@ from dataclasses import dataclass, asdict
 from rich.table import Table
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
+from gript.core.settings import settings
 
 
 @dataclass
@@ -23,8 +24,8 @@ class AIConfig:
     chunk_size: int = 1000
     chunk_overlap: int = 200
     max_tokens_per_request: int = 4000
-    index_file_types: list = None
-    exclude_patterns: list = None
+    index_file_types: list[str] = None
+    exclude_patterns: list[str] = None
     auto_index_on_change: bool = True
     
     def __post_init__(self):
@@ -68,7 +69,7 @@ class AIConfigManager:
     
     def save_config(self, config: Dict[str, Any]):
         """Save configuration to file."""
-        with open(self.config_file, 'w') as f:
+        with open(self.config_file, '+a') as f:
             json.dump(config, f, indent=2)
     
     def _create_default_config(self) -> Dict[str, Any]:
@@ -122,7 +123,7 @@ class AIConfigManager:
         # AI provider selection
         self.console.print("\n📡 [bold]AI Provider Settings[/bold]")
         
-        chat_providers = ["openai", "openrouter"]
+        chat_providers = ["openai", "openrouter", "anthropic", "grok", "groq"]
         current_chat_provider = ai_config.get("chat_provider", "openai")
         
         chat_provider = Prompt.ask(
@@ -234,23 +235,33 @@ class AIConfigManager:
         self.console.print("\n🔑 [bold]API Key Configuration[/bold]")
         
         # Check for existing keys
-        openai_key = os.getenv("OPENAI_API_KEY")
-        openrouter_key = os.getenv("OPENROUTER_API_KEY")
-        
+        openai_key = settings.openai_api_key
+        openrouter_key = settings.openrouter_api_key
+        anthropic_key = settings.anthropic_api_key
+        grok_key = settings.grok_api_key
+        groq_key = settings.groq_api_key
+
         key_table = Table(title="Current API Keys")
         key_table.add_column("Provider", style="cyan")
         key_table.add_column("Status", style="green")
         
         key_table.add_row("OpenAI", "✅ Set" if openai_key else "❌ Not set")
         key_table.add_row("OpenRouter", "✅ Set" if openrouter_key else "❌ Not set")
+        key_table.add_row("Anthropic", "✅ Set" if anthropic_key else "❌ Not set")
+        key_table.add_row("Grok", "✅ Set" if grok_key else "❌ Not set")
+        key_table.add_row("Groq", "✅ Set" if groq_key else "❌ Not set")
+
         
         self.console.print(key_table)
-        
-        if not openai_key and not openrouter_key:
+
+        if not openai_key and not openrouter_key and not anthropic_key and not grok_key and not groq_key:
             self.console.print("\n[yellow]⚠️  No API keys found![/yellow]")
             self.console.print("Please set at least one API key in your environment:")
             self.console.print("• [cyan]export OPENAI_API_KEY='your-key'[/cyan]")
             self.console.print("• [cyan]export OPENROUTER_API_KEY='your-key'[/cyan]")
+            self.console.print("• [cyan]export ANTHROPIC_API_KEY='your-key'[/cyan]")
+            self.console.print("• [cyan]export GROK_API_KEY='your-key'[/cyan]")
+            self.console.print("• [cyan]export GROQ_API_KEY='your-key'[/cyan]")
             self.console.print("\nOr add them to a .env file in your project root.")
     
     def _display_config_summary(self, ai_config: Dict[str, Any]):

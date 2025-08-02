@@ -222,7 +222,7 @@ class GriptGit:
     def create_branch(self, branch_name: str, issue_number: Optional[int] = None,
                      from_branch: Optional[str] = None, interactive: bool = False) -> Dict[str, Any]:
         """
-        Enhanced branch creation with automation features.
+        Enhanced branch creation with automation features and metadata tracking.
         
         :param branch_name: Name of the new branch
         :param issue_number: Optional issue number for tracking
@@ -231,7 +231,7 @@ class GriptGit:
         :return: Dictionary with branch creation results
         """
         try:
-            # Use automation suite for smart feature start
+            # Use automation suite for smart feature start if available
             if hasattr(self.automation, 'smart_feature_start'):
                 result = self.automation.smart_feature_start(
                     feature_name=branch_name,
@@ -239,6 +239,13 @@ class GriptGit:
                     from_branch=from_branch,
                     interactive=interactive
                 )
+                
+                # Update branch metadata
+                self._save_branch_metadata(result.get('branch_name', branch_name), {
+                    "issue_number": issue_number,
+                    "base_branch": result.get('base_branch'),
+                    "created_via": "automation"
+                })
                 
                 self._log_operation("create_branch", {
                     "branch_name": result.get('branch_name', branch_name),
@@ -249,12 +256,50 @@ class GriptGit:
                 self._update_operation_stats("create_branch")
                 return result
             
-            # Fallback to basic branch creation
+            # Fallback to basic branch creation with manual metadata tracking
             create_branch(self.repo, branch_name)
+            
+            # Save branch metadata manually
+            self._save_branch_metadata(branch_name, {
+                "issue_number": issue_number,
+                "base_branch": from_branch or self.get_current_branch(),
+                "created_via": "manual"
+            })
+            
+            self._log_operation("create_branch", {
+                "branch_name": branch_name,
+                "base_branch": from_branch,
+                "issue_number": issue_number,
+                "automated": False
+            })
+            self._update_operation_stats("create_branch")
+            
             return {"success": True, "branch_name": branch_name}
             
         except Exception as e:
             raise _handle_git_error("create branch", e)
+    
+    def _save_branch_metadata(self, branch_name: str, metadata: Dict[str, Any]):
+        """Save branch metadata to .gript/branches/"""
+        try:
+            branch = self.repo.heads[branch_name]
+            branch_info = {
+                "name": branch_name,
+                "tracking_branch": branch.tracking_branch().name if branch.tracking_branch() else None,
+                "last_commit": branch.commit.hexsha,
+                "last_commit_date": branch.commit.committed_datetime.isoformat(),
+                "last_commit_author": branch.commit.author.name,
+                "created_at": datetime.now().isoformat(),
+                "is_active": branch == self.repo.active_branch,
+                **metadata
+            }
+            
+            # Save branch metadata
+            branch_file = self._gript_dir / "branches" / f"{branch_name}.json"
+            with open(branch_file, "w") as f:
+                json.dump(branch_info, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save metadata for branch {branch_name}: {e}")
     
     def push_changes(self, remote_name: str = 'origin', branch_name: Optional[str] = None,
                     force: bool = False, set_upstream: bool = False) -> str:
@@ -455,8 +500,47 @@ def commit_changes(repo: Repo, message: str, files: Optional[List[str]] = None,
                 'allow_empty': allow_empty
             } if amend or allow_empty else {})
         
-        # Return the commit hash
-        return repo.head.commit.hexsha
+        # Get the commit hash
+        commit_hash = repo.head.commit.hexsha
+        
+        # Try to update tracking if GriptGit is being used
+        try:
+            from pathlib import Path
+            gript_dir = Path(repo.working_dir) / ".gript"
+            if gript_dir.exists():
+                # This is a gript-enabled repo, create a GriptGit instance for tracking
+                gript_git = GriptGit(repo.working_dir)
+                
+                # Save commit metadata
+                commit_info = {
+                    "hash": commit_hash,
+                    "short_hash": commit_hash[:8],
+                    "message": message,
+                    "author": repo.head.commit.author.name,
+                    "author_email": repo.head.commit.author.email,
+                    "date": repo.head.commit.committed_datetime.isoformat(),
+                    "files_changed": len(repo.head.commit.stats.files),
+                    "insertions": repo.head.commit.stats.total["insertions"],
+                    "deletions": repo.head.commit.stats.total["deletions"],
+                    "created_via": "core_function"
+                }
+                
+                commit_file = gript_dir / "commits" / f"{commit_hash[:8]}.json"
+                with open(commit_file, "w") as f:
+                    json.dump(commit_info, f, indent=2)
+                
+                gript_git._log_operation("commit", {
+                    "message": message,
+                    "files": files or [],
+                    "hash": commit_hash,
+                    "via": "core_function"
+                })
+                gript_git._update_operation_stats("commit")
+        except Exception:
+            # Silently ignore tracking errors for non-gript repos
+            pass
+        
+        return commit_hash
         
     except GitCommandError as e:
         raise _handle_git_error("commit changes", e)
@@ -599,6 +683,27 @@ def create_branch(repo: Repo, branch_name: str) -> None:
     """
     try:
         repo.git.checkout('-b', branch_name)
+        
+        # Try to update tracking if GriptGit is being used
+        try:
+            from pathlib import Path
+            gript_dir = Path(repo.working_dir) / ".gript"
+            if gript_dir.exists():
+                # This is a gript-enabled repo, create a GriptGit instance for tracking
+                gript_git = GriptGit(repo.working_dir)
+                gript_git._save_branch_metadata(branch_name, {
+                    "created_via": "core_function",
+                    "base_branch": repo.active_branch.name if repo.active_branch else "unknown"
+                })
+                gript_git._log_operation("create_branch", {
+                    "branch_name": branch_name,
+                    "via": "core_function"
+                })
+                gript_git._update_operation_stats("create_branch")
+        except Exception:
+            # Silently ignore tracking errors for non-gript repos
+            pass
+            
     except GitCommandError as e:
         raise RuntimeError(f"Failed to create branch '{branch_name}': {e}")
     
@@ -1399,7 +1504,7 @@ def get_gript_status(repo_path: str = ".") -> Dict[str, Any]:
 
 def migrate_to_gript(repo_path: str = ".") -> Dict[str, Any]:
     """
-    Migrate an existing Git repository to use DotGript automation.
+    Migrate an existing Git repository to use DotGript automation with comprehensive branch and commit migration.
     
     :param repo_path: Path to the Git repository
     :return: Migration results
@@ -1407,22 +1512,128 @@ def migrate_to_gript(repo_path: str = ".") -> Dict[str, Any]:
     try:
         # Create GriptGit instance (this will setup .gript folder)
         gript_git = GriptGit(repo_path)
+        repo = gript_git.repo
+        
+        migration_results = {
+            "branches_migrated": 0,
+            "commits_analyzed": 0,
+            "remotes_tracked": 0,
+            "tags_migrated": 0
+        }
+        
+        # Migrate all branches with their metadata
+        for branch in repo.branches:
+            try:
+                # Get branch info
+                branch_info = {
+                    "name": branch.name,
+                    "tracking_branch": branch.tracking_branch().name if branch.tracking_branch() else None,
+                    "last_commit": branch.commit.hexsha,
+                    "last_commit_date": branch.commit.committed_datetime.isoformat(),
+                    "last_commit_author": branch.commit.author.name,
+                    "migrated_at": datetime.now().isoformat(),
+                    "is_active": branch == repo.active_branch
+                }
+                
+                # Save branch metadata
+                branch_file = gript_git._gript_dir / "branches" / f"{branch.name}.json"
+                with open(branch_file, "w") as f:
+                    json.dump(branch_info, f, indent=2)
+                
+                migration_results["branches_migrated"] += 1
+            except Exception as e:
+                print(f"Warning: Could not migrate branch {branch.name}: {e}")
+        
+        # Analyze recent commits for patterns (last 50)
+        try:
+            recent_commits = list(repo.iter_commits(max_count=50))
+            for commit in recent_commits:
+                commit_info = {
+                    "hash": commit.hexsha,
+                    "short_hash": commit.hexsha[:8],
+                    "message": commit.message.strip(),
+                    "author": commit.author.name,
+                    "author_email": commit.author.email,
+                    "date": commit.committed_datetime.isoformat(),
+                    "files_changed": len(commit.stats.files),
+                    "insertions": commit.stats.total["insertions"],
+                    "deletions": commit.stats.total["deletions"]
+                }
+                
+                # Save commit metadata
+                commit_file = gript_git._gript_dir / "commits" / f"{commit.hexsha[:8]}.json"
+                with open(commit_file, "w") as f:
+                    json.dump(commit_info, f, indent=2)
+                
+                migration_results["commits_analyzed"] += 1
+        except Exception as e:
+            print(f"Warning: Could not analyze commits: {e}")
+        
+        # Track remotes
+        for remote in repo.remotes:
+            remote_info = {
+                "name": remote.name,
+                "url": list(remote.urls)[0] if remote.urls else None,
+                "migrated_at": datetime.now().isoformat()
+            }
+            
+            remote_file = gript_git._gript_dir / f"remote_{remote.name}.json"
+            with open(remote_file, "w") as f:
+                json.dump(remote_info, f, indent=2)
+            
+            migration_results["remotes_tracked"] += 1
+        
+        # Migrate tags
+        for tag in repo.tags:
+            tag_info = {
+                "name": tag.name,
+                "commit": tag.commit.hexsha,
+                "date": tag.commit.committed_datetime.isoformat(),
+                "migrated_at": datetime.now().isoformat()
+            }
+            
+            tag_file = gript_git._gript_dir / "tags" / f"{tag.name}.json"
+            tag_file.parent.mkdir(exist_ok=True)
+            with open(tag_file, "w") as f:
+                json.dump(tag_info, f, indent=2)
+            
+            migration_results["tags_migrated"] += 1
+        
+        # Create migration summary
+        migration_summary = {
+            "migration_date": datetime.now().isoformat(),
+            "repository_path": repo_path,
+            "results": migration_results,
+            "current_branch": gript_git.get_current_branch(),
+            "total_branches": len(repo.branches),
+            "total_remotes": len(repo.remotes),
+            "total_tags": len(repo.tags)
+        }
+        
+        # Save migration summary
+        summary_file = gript_git._gript_dir / "migration_summary.json"
+        with open(summary_file, "w") as f:
+            json.dump(migration_summary, f, indent=2)
         
         # Log the migration
         gript_git._log_operation("migrate_to_gript", {
             "repo_path": repo_path,
-            "migration_date": datetime.now().isoformat()
+            "migration_date": datetime.now().isoformat(),
+            "results": migration_results
         })
         
         return {
             "success": True,
             "message": f"Successfully migrated repository at {repo_path} to DotGript",
             "gript_dir": str(gript_git._gript_dir),
+            "migration_results": migration_results,
             "features_enabled": [
                 "operation_logging",
                 "statistics_tracking", 
                 "branch_metadata",
-                "automation_integration"
+                "automation_integration",
+                "commit_analysis",
+                "remote_tracking"
             ]
         }
         

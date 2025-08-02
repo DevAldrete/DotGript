@@ -1,21 +1,19 @@
 from os import getenv
+from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
 load_dotenv("./.env")
 
 
-class Settings:
-    @property
-    def openrouter_api_key(self):
-        return getenv("OPENROUTER_API_KEY", "")
+class Settings(BaseSettings):
+    openrouter_api_key: str | None  = getenv("OPENROUTER_API_KEY")
+    groq_api_key: str | None = getenv("GROQ_API_KEY")
+    openai_api_key: str | None = getenv("OPENAI_API_KEY")
+    anthropic_api_key: str | None = getenv("ANTHROPIC_API_KEY")
+    grok_api_key: str | None = getenv("GROK_API_KEY")
+    groq_api_key: str | None = getenv("GROQ_API_KEY")
+    custom_base_url: str | None = getenv("CUSTOM_BASE_URL")
 
-    @property
-    def groq_api_key(self):
-        return getenv("GROQ_API_KEY", "")
-
-    @property
-    def openai_api_key(self):
-        return getenv("OPENAI_API_KEY", "")
 
 
 settings = Settings()

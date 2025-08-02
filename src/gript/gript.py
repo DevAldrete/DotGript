@@ -1,8 +1,8 @@
 from typer import Typer
 from gript.core.gript import (
-    clone_repo, commit_changes, get_repo_info, push_changes, pull_changes, 
+    clone_repo, get_repo_info, push_changes, pull_changes, 
     get_repo_status, checkout_branch, switch_branch, remove_branch, add_remote, 
-    create_branch, get_current_branch, get_remote_repos, fetch_remote, list_branches,
+    get_current_branch, get_remote_repos, fetch_remote, list_branches,
     get_git_log, show_commit, get_diff, reset_repo, create_tag, list_tags, delete_tag,
     stash_changes, stash_pop, list_stashes, merge_branch, rebase_branch, cherry_pick,
     init_repo, get_untracked_files, add_files, remove_files, blame_file,
@@ -725,7 +725,7 @@ def commit_changes_cmd(
     use_conventional: bool = True,
 ) -> None:
     """
-    Enhanced commit with DotGript automation features.
+    Enhanced commit with DotGript automation features and tracking.
     
     :param local_path: Local path of the repository to commit changes to.
     :param message: Commit message.
@@ -735,46 +735,31 @@ def commit_changes_cmd(
     :param use_conventional: Whether to use conventional commit formatting and validation.
     """
     try:
-        # Try to use enhanced commit if .gript exists
-        try:
-            gript_git = create_gript_git(local_path)
-            result = gript_git.commit_changes(
-                message=message,
-                files=files,
-                amend=amend,
-                allow_empty=allow_empty,
-                use_conventional_commits=use_conventional
-            )
-            
-            if isinstance(result, dict) and result.get('success'):
-                commit_hash = result.get('commit_hash', '')[:7]
-                formatted_msg = result.get('message', message)
-                
-                if amend:
-                    print(f"✨ [yellow]Enhanced amended commit[/yellow] with hash: [bold]{commit_hash}[/bold]")
-                else:
-                    print(f"✨ [yellow]Enhanced commit[/yellow] with hash: [bold]{commit_hash}[/bold]")
-                print(f"📝 Message: [bold]{formatted_msg}[/bold]")
-                
-                # Show automation info
-                if use_conventional and result.get('conventional'):
-                    print("🎯 [green]Conventional commit format applied[/green]")
-                print("📊 [cyan]Operation logged to .gript/logs/[/cyan]")
-            else:
-                error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else str(result)
-                raise Exception(error_msg)
-                
-        except Exception:
-            # Fallback to basic commit
-            repo = Repo(local_path)
-            commit_hash = commit_changes(repo, message, files, amend, allow_empty)
-            
-            if amend:
-                print(f"[yellow]Amended commit[/yellow] with hash: [bold]{commit_hash[:7]}[/bold]")
-            else:
-                print(f"Changes [yellow]committed[/yellow] with hash: [bold]{commit_hash[:7]}[/bold]")
-            print(f"Message: [bold]{message}[/bold]")
-            print("💡 [dim]Enable DotGript automation for enhanced commit features[/dim]")
+        # Always use GriptGit for enhanced tracking
+        gript_git = GriptGit(local_path)
+        result = gript_git.commit_changes(
+            message=message,
+            files=files,
+            amend=amend,
+            allow_empty=allow_empty,
+            use_conventional_commits=use_conventional
+        )
+        
+        if isinstance(result, str):  # Commit hash returned from basic commit
+            print("✅ [green]Commit successful![/green]")
+            print(f"📝 Message: [bold]{message}[/bold]")
+            print(f"🔖 Hash: [yellow]{result[:8]}[/yellow]")
+            print("📊 [cyan]Operation logged to .gript/logs/[/cyan]")
+        elif isinstance(result, dict) and result.get('success'):
+            print("✨ [green]Smart commit successful![/green]")
+            print(f"📝 Message: [bold]{result.get('message', message)}[/bold]")
+            print(f"🔖 Hash: [yellow]{result.get('commit_hash', '')[:8]}[/yellow]")
+            if use_conventional and result.get('conventional'):
+                print("🎯 [green]Conventional commit format applied[/green]")
+            print("📊 [cyan]Operation logged to .gript/logs/[/cyan]")
+        else:
+            error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else 'Unknown error'
+            print(f"❌ [red]Commit failed:[/red] {error_msg}")
         
     except GitError as e:
         print(f"[red]Error:[/red] {e}")
@@ -837,17 +822,30 @@ def checkout_branch_cmd(
 def create_branch_cmd(
     branch_name: str,
     local_path: str = ".",
+    issue_number: Optional[int] = None,
+    from_branch: Optional[str] = None,
 ) -> None:
     """
-    Create a new branch in the repository.
+    Create a new branch in the repository with enhanced tracking.
     
     :param branch_name: Name of the new branch to create.
     :param local_path: Local path of the repository to create the branch in.
+    :param issue_number: Optional issue number for tracking.
+    :param from_branch: Base branch to create from.
     """
     try:
-        repo = Repo(local_path)
-        create_branch(repo, branch_name)
-        print(f"Created new branch: [bold]{branch_name}[/bold]")
+        # Use GriptGit for enhanced tracking
+        gript_git = GriptGit(local_path)
+        result = gript_git.create_branch(branch_name, issue_number, from_branch)
+        
+        if result.get('success'):
+            print(f"✅ [green]Created new branch:[/green] [bold]{result['branch_name']}[/bold]")
+            if issue_number:
+                print(f"🎯 [blue]Linked to issue #{issue_number}[/blue]")
+            if result.get('base_branch'):
+                print(f"📍 [yellow]Based on: {result['base_branch']}[/yellow]")
+        else:
+            print(f"❌ [red]Failed to create branch:[/red] {result.get('error')}")
     except Exception as e:
         print(f"[red]Error:[/red] {e}")
 
@@ -1026,21 +1024,33 @@ def migrate_repository_cmd(
     local_path: str = "."
 ) -> None:
     """
-    Migrate an existing Git repository to use DotGript automation.
+    Migrate an existing Git repository to use DotGript automation with comprehensive data migration.
     
     :param local_path: Local path of the repository.
     """
     try:
+        print("🔄 [yellow]Starting DotGript migration...[/yellow]")
         result = migrate_to_gript(local_path)
         
         if result['success']:
             print("🎉 [bold green]Migration successful![/bold green]")
             print(f"📁 DotGript directory: [blue]{result['gript_dir']}[/blue]")
+            
+            # Show migration statistics if available
+            if 'migration_results' in result:
+                migration_results = result['migration_results']
+                print("\n📊 [bold]Migration Results:[/bold]")
+                print(f"   🌿 Branches migrated: [cyan]{migration_results.get('branches_migrated', 0)}[/cyan]")
+                print(f"   📝 Recent commits analyzed: [cyan]{migration_results.get('commits_analyzed', 0)}[/cyan]")
+                print(f"   🔗 Remotes tracked: [cyan]{migration_results.get('remotes_tracked', 0)}[/cyan]")
+                print(f"   🏷️  Tags migrated: [cyan]{migration_results.get('tags_migrated', 0)}[/cyan]")
+            
             print("\n✨ [bold]Features enabled:[/bold]")
             for feature in result['features_enabled']:
                 print(f"   • [green]{feature.replace('_', ' ').title()}[/green]")
             
-            print(f"\n💡 [dim]Migration completed on {result.get('migration_date', 'now')}[/dim]")
+            print("\n💡 [dim]Migration completed - Use 'gript git automation-status' for details[/dim]")
+            print("💡 [dim]Try 'gript git smart-feature-start <name>' for smart branch creation[/dim]")
         else:
             print(f"❌ [bold red]Migration failed:[/bold red] {result['error']}")
             print(f"💬 {result['message']}")
@@ -1125,5 +1135,375 @@ def smart_commit_cmd(
                 error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else str(result)
                 print(f"❌ [red]Smart commit failed:[/red] {error_msg}")
             
+    except Exception as e:
+        print(f"[red]Error:[/red] {e}")
+
+
+# =====================================================================
+# AUTOMATION COMMANDS - DotGript Smart Git Workflows
+# =====================================================================
+
+@app.command("smart-feature-start")
+def smart_feature_start_cmd(
+    feature_name: str,
+    local_path: str = ".",
+    issue_number: Optional[int] = None,
+    from_branch: Optional[str] = None,
+    interactive: bool = False,
+) -> None:
+    """
+    Start a new feature branch with smart automation and metadata tracking.
+    
+    :param feature_name: Name of the feature to create
+    :param local_path: Local path of the repository
+    :param issue_number: Optional issue number for tracking
+    :param from_branch: Base branch to create from
+    :param interactive: Whether to use interactive naming
+    """
+    try:
+        gript_git = GriptGit(local_path)
+        
+        if hasattr(gript_git.automation, 'smart_feature_start'):
+            result = gript_git.automation.smart_feature_start(
+                feature_name=feature_name,
+                issue_number=issue_number,
+                from_branch=from_branch,
+                interactive=interactive
+            )
+            
+            if result.get('success'):
+                print("🌟 [bold green]Smart feature branch created successfully![/bold green]")
+                print(f"🌿 Branch: [bold cyan]{result['branch_name']}[/bold cyan]")
+                print(f"📍 Base: [yellow]{result['base_branch']}[/yellow]")
+                print(f"🔗 Upstream: {'Set' if result.get('upstream_set') else 'Not set'}")
+                if issue_number:
+                    print(f"🎯 Issue: [blue]#{issue_number}[/blue]")
+                print(f"⏰ Created: {result['created_at']}")
+            else:
+                print(f"❌ [red]Failed to create feature branch:[/red] {result.get('error')}")
+        else:
+            # Fallback to basic branch creation
+            result = gript_git.create_branch(feature_name, issue_number, from_branch, interactive)
+            print(f"✅ [green]Feature branch created:[/green] [bold]{result['branch_name']}[/bold]")
+            
+    except Exception as e:
+        print(f"[red]Error:[/red] {e}")
+
+
+@app.command("smart-feature-finish")
+def smart_feature_finish_cmd(
+    local_path: str = ".",
+    branch_name: Optional[str] = None,
+    squash: Optional[bool] = None,
+    delete_branch: Optional[bool] = None,
+    push_after_merge: bool = True,
+) -> None:
+    """
+    Finish a feature branch with smart automation (merge and cleanup).
+    
+    :param local_path: Local path of the repository
+    :param branch_name: Branch to finish (current branch if None)
+    :param squash: Whether to squash merge
+    :param delete_branch: Whether to delete branch after merge
+    :param push_after_merge: Whether to push after merge
+    """
+    try:
+        gript_git = GriptGit(local_path)
+        
+        if hasattr(gript_git.automation, 'smart_feature_finish'):
+            result = gript_git.automation.smart_feature_finish(
+                branch_name=branch_name,
+                squash=squash,
+                delete_branch=delete_branch,
+                push_after_merge=push_after_merge
+            )
+            
+            if result.get('success', True):
+                print("🎉 [bold green]Feature finished successfully![/bold green]")
+                print(f"🌿 Branch: [bold]{result['branch']}[/bold]")
+                print(f"🎯 Target: [yellow]{result['target']}[/yellow]")
+                print(f"📝 Squashed: {'Yes' if result.get('squashed') else 'No'}")
+                print(f"📊 Commits merged: {len(result.get('commits_merged', []))}")
+                print(f"⏰ Completed: {result.get('timestamp')}")
+            else:
+                print(f"❌ [red]Failed to finish feature:[/red] {result.get('error')}")
+        else:
+            print("❌ [red]Smart feature finish not available. Use regular merge commands.[/red]")
+            
+    except Exception as e:
+        print(f"[red]Error:[/red] {e}")
+
+
+@app.command("list-active-features")
+def list_active_features_cmd(
+    local_path: str = "."
+) -> None:
+    """
+    List all active feature branches with metadata and status.
+    
+    :param local_path: Local path of the repository
+    """
+    try:
+        gript_git = GriptGit(local_path)
+        
+        if hasattr(gript_git.automation, 'list_active_features'):
+            features = gript_git.automation.list_active_features()
+            
+            if features:
+                table = Table(title="🌿 Active Feature Branches", show_header=True, header_style="bold magenta")
+                table.add_column("Branch", style="cyan", no_wrap=True)
+                table.add_column("Type", style="green")
+                table.add_column("Issue", style="blue")
+                table.add_column("Last Commit", style="yellow")
+                table.add_column("Status", style="white")
+                
+                for feature in features:
+                    branch_name = feature.get('name', 'unknown')
+                    branch_type = feature.get('type', 'unknown')
+                    issue = f"#{feature['issue_number']}" if feature.get('issue_number') else '-'
+                    last_commit = feature.get('last_commit_date', 'unknown')[:10]  # Date only
+                    status = "🟢 Active" if feature.get('is_current') else "⚪ Inactive"
+                    
+                    table.add_row(branch_name, branch_type, issue, last_commit, status)
+                
+                console.print(table)
+            else:
+                print("📭 [yellow]No active feature branches found.[/yellow]")
+        else:
+            print("❌ [red]Smart feature listing not available.[/red]")
+            
+    except Exception as e:
+        print(f"[red]Error:[/red] {e}")
+
+
+@app.command("commit-suggestions")
+def commit_suggestions_cmd(
+    local_path: str = "."
+) -> None:
+    """
+    Get AI-powered commit message suggestions based on staged changes.
+    
+    :param local_path: Local path of the repository
+    """
+    try:
+        gript_git = GriptGit(local_path)
+        
+        if hasattr(gript_git.automation, 'intelligent_commit_suggestions'):
+            suggestions = gript_git.automation.intelligent_commit_suggestions()
+            
+            if suggestions:
+                print("🤖 [bold cyan]AI Commit Suggestions:[/bold cyan]\n")
+                
+                table = Table(show_header=True, header_style="bold magenta")
+                table.add_column("#", style="dim", width=3)
+                table.add_column("Type", style="green", width=10)
+                table.add_column("Message", style="white")
+                table.add_column("Files", style="yellow", width=15)
+                table.add_column("Confidence", style="blue", width=10)
+                
+                for i, suggestion in enumerate(suggestions, 1):
+                    files_str = ", ".join(suggestion.get('files', [])[:2])
+                    if len(suggestion.get('files', [])) > 2:
+                        files_str += f" +{len(suggestion['files'])-2} more"
+                    
+                    confidence = f"{suggestion.get('confidence', 0)*100:.0f}%"
+                    
+                    table.add_row(
+                        str(i),
+                        suggestion.get('suggested_commit_type', 'unknown'),
+                        suggestion.get('suggested_message', ''),
+                        files_str,
+                        confidence
+                    )
+                
+                console.print(table)
+                print("\n💡 [dim]Use 'gript git smart-commit' to select and apply a suggestion.[/dim]")
+            else:
+                print("📭 [yellow]No commit suggestions available. Make sure you have staged changes.[/yellow]")
+        else:
+            print("❌ [red]Commit suggestions not available.[/red]")
+            
+    except Exception as e:
+        print(f"[red]Error:[/red] {e}")
+
+
+@app.command("smart-release")
+def smart_release_cmd(
+    local_path: str = ".",
+    version_bump: str = "patch",
+    pre_release: bool = False,
+    release_notes: Optional[str] = None,
+    dry_run: bool = False,
+) -> None:
+    """
+    Create a smart release with automated versioning and changelog generation.
+    
+    :param local_path: Local path of the repository
+    :param version_bump: Version bump type (patch, minor, major)
+    :param pre_release: Whether this is a pre-release
+    :param release_notes: Optional custom release notes
+    :param dry_run: Whether to perform a dry run
+    """
+    try:
+        gript_git = GriptGit(local_path)
+        
+        if hasattr(gript_git.automation, 'smart_release'):
+            result = gript_git.automation.smart_release(
+                version_bump=version_bump,
+                pre_release=pre_release,
+                release_notes=release_notes,
+                dry_run=dry_run
+            )
+            
+            if result.get('success'):
+                action = "Would create" if dry_run else "Created"
+                print(f"🚀 [bold green]{action} release successfully![/bold green]")
+                print(f"🏷️  Version: [bold]{result['version']}[/bold]")
+                print(f"📦 Tag: [yellow]{result.get('tag')}[/yellow]")
+                print(f"📋 Changelog: {'Generated' if result.get('changelog_updated') else 'Skipped'}")
+                
+                if result.get('changelog_preview'):
+                    print("\n📄 [bold]Changelog Preview:[/bold]")
+                    print(result['changelog_preview'])
+            else:
+                print(f"❌ [red]Failed to create release:[/red] {result.get('error')}")
+        else:
+            print("❌ [red]Smart release not available.[/red]")
+            
+    except Exception as e:
+        print(f"[red]Error:[/red] {e}")
+
+
+@app.command("hotfix-start")
+def hotfix_start_cmd(
+    hotfix_name: str,
+    local_path: str = ".",
+    target_version: Optional[str] = None,
+    from_tag: Optional[str] = None,
+) -> None:
+    """
+    Start a hotfix workflow for urgent fixes.
+    
+    :param hotfix_name: Name of the hotfix
+    :param local_path: Local path of the repository
+    :param target_version: Target version for the hotfix
+    :param from_tag: Tag to create hotfix from
+    """
+    try:
+        gript_git = GriptGit(local_path)
+        
+        if hasattr(gript_git.automation, 'hotfix_workflow'):
+            result = gript_git.automation.hotfix_workflow(
+                hotfix_name=hotfix_name,
+                target_version=target_version,
+                from_tag=from_tag
+            )
+            
+            if result.get('success'):
+                print("🚨 [bold red]Hotfix started successfully![/bold red]")
+                print(f"🩹 Branch: [bold]{result['hotfix_branch']}[/bold]")
+                print(f"🏷️  Target Version: [yellow]{result.get('target_version')}[/yellow]")
+                print(f"📍 Base: {result.get('base_commit', 'latest')}")
+            else:
+                print(f"❌ [red]Failed to start hotfix:[/red] {result.get('error')}")
+        else:
+            print("❌ [red]Hotfix workflow not available.[/red]")
+            
+    except Exception as e:
+        print(f"[red]Error:[/red] {e}")
+
+
+@app.command("hotfix-finish")
+def hotfix_finish_cmd(
+    local_path: str = ".",
+    hotfix_branch: Optional[str] = None,
+) -> None:
+    """
+    Finish a hotfix workflow (merge to main and develop).
+    
+    :param local_path: Local path of the repository
+    :param hotfix_branch: Hotfix branch to finish (current if None)
+    """
+    try:
+        gript_git = GriptGit(local_path)
+        
+        if hasattr(gript_git.automation, 'finish_hotfix'):
+            result = gript_git.automation.finish_hotfix(hotfix_branch=hotfix_branch)
+            
+            if result.get('success'):
+                print("✅ [bold green]Hotfix finished successfully![/bold green]")
+                print(f"🩹 Branch: [bold]{result['hotfix_branch']}[/bold]")
+                print(f"🎯 Merged to: {', '.join(result.get('merged_to', []))}")
+                print(f"🏷️  Version: [yellow]{result.get('version')}[/yellow]")
+            else:
+                print(f"❌ [red]Failed to finish hotfix:[/red] {result.get('error')}")
+        else:
+            print("❌ [red]Hotfix finish not available.[/red]")
+            
+    except Exception as e:
+        print(f"[red]Error:[/red] {e}")
+
+
+@app.command("automation-status")
+def automation_status_cmd(
+    local_path: str = "."
+) -> None:
+    """
+    Show comprehensive automation status and configuration.
+    
+    :param local_path: Local path of the repository
+    """
+    try:
+        gript_git = GriptGit(local_path)
+        
+        # Get automation config
+        if hasattr(gript_git.automation, 'config'):
+            config = gript_git.automation.config
+            print("⚙️  [bold cyan]DotGript Automation Status[/bold cyan]\n")
+            
+            # Configuration table
+            config_table = Table(title="Configuration", show_header=False, box=None)
+            config_table.add_column("Setting", style="bold cyan")
+            config_table.add_column("Value", style="white")
+            
+            config_table.add_row("Workflow Type", config.workflow_type.value)
+            config_table.add_row("Main Branch", config.branch_strategy.main_branch)
+            config_table.add_row("Develop Branch", config.branch_strategy.develop_branch)
+            config_table.add_row("Conventional Commits", "✅ Enabled" if config.enforce_conventional_commits else "❌ Disabled")
+            config_table.add_row("Auto Squash Merge", "✅ Enabled" if config.auto_squash_merge else "❌ Disabled")
+            config_table.add_row("Semantic Versioning", "✅ Enabled" if config.semantic_versioning else "❌ Disabled")
+            config_table.add_row("Auto Changelog", "✅ Enabled" if config.auto_changelog else "❌ Disabled")
+            
+            console.print(config_table)
+            print()
+            
+            # Protected branches
+            if config.protected_branches:
+                print("🛡️  [bold]Protected Branches:[/bold]")
+                for branch in config.protected_branches:
+                    print(f"   • [yellow]{branch}[/yellow]")
+                print()
+        
+        # Get gript status
+        status = get_gript_status(local_path)
+        
+        # Statistics
+        if status.get('gript_info', {}).get('stats'):
+            stats = status['gript_info']['stats']
+            stats_table = Table(title="📊 Operation Statistics", show_header=True, header_style="bold magenta")
+            stats_table.add_column("Operation", style="cyan")
+            stats_table.add_column("Count", style="green")
+            
+            for operation, count in stats.items():
+                if operation != 'last_operation':
+                    stats_table.add_row(operation.replace('_', ' ').title(), str(count))
+            
+            console.print(stats_table)
+            print()
+        
+        print(f"📁 [bold]Gript Directory:[/bold] {status.get('gript_info', {}).get('gript_dir', 'N/A')}")
+        print(f"🌿 [bold]Current Branch:[/bold] {status.get('current_branch', 'N/A')}")
+        print(f"🤖 [bold]Automation:[/bold] {'✅ Enabled' if status.get('automation_enabled') else '❌ Disabled'}")
+        
     except Exception as e:
         print(f"[red]Error:[/red] {e}")

@@ -8,7 +8,7 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 from gript.core.settings import settings
-from gript.core.ai_codebase import CodebaseIndexer, CodebaseAnalysisAgent
+from gript.core.ai.codebase import CodebaseIndexer, CodebaseAnalysisAgent
 from typer import Typer
 from rich import print
 from rich.table import Table
@@ -185,6 +185,9 @@ def search(
     deep: bool = False,
     persona: Personality = Personality.SEXY,
 ):
+    """
+    Search for information online using the specified query and persona.
+    """
     persona_info = get_personality_info(persona=persona)
 
     @agent.instructions
@@ -211,7 +214,7 @@ def search(
 @app.command("setup")
 def setup_ai_config(project_root: str = "."):
     """Interactive setup for AI configuration."""
-    from gript.core.ai_config import AIConfigManager
+    from gript.core.ai.config import AIConfigManager
     
     project_path = Path(project_root).resolve()
     config_manager = AIConfigManager(project_path)
@@ -222,7 +225,7 @@ def setup_ai_config(project_root: str = "."):
 @app.command("config-show")
 def show_ai_config(project_root: str = "."):
     """Show current AI configuration."""
-    from gript.core.ai_config import AIConfigManager
+    from gript.core.ai.config import AIConfigManager
     
     project_path = Path(project_root).resolve()
     config_manager = AIConfigManager(project_path)
@@ -236,7 +239,7 @@ def update_budget(
     project_root: str = ".",
 ):
     """Update monthly AI usage budget."""
-    from gript.core.ai_config import AIConfigManager
+    from gript.core.ai.config import AIConfigManager
     
     project_path = Path(project_root).resolve()
     config_manager = AIConfigManager(project_path)
@@ -247,7 +250,7 @@ def update_budget(
 @app.command("reset-stats")
 def reset_usage_stats(project_root: str = "."):
     """Reset AI usage statistics."""
-    from gript.core.ai_config import AIConfigManager
+    from gript.core.ai.config import AIConfigManager
     
     project_path = Path(project_root).resolve()
     config_manager = AIConfigManager(project_path)
@@ -258,7 +261,7 @@ def reset_usage_stats(project_root: str = "."):
 @app.command("help")
 def show_ai_help():
     """Show help information about AI features."""
-    from gript.core.ai_init import display_ai_features_help
+    from gript.core.ai.init import display_ai_features_help
     
     display_ai_features_help()
 

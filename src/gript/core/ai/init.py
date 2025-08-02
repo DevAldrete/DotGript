@@ -3,7 +3,7 @@ AI system initialization utilities for DotGript.
 Handles setup and initialization of AI features when creating new projects.
 """
 from pathlib import Path
-from gript.core.ai_config import AIConfigManager
+from gript.core.ai.config import AIConfigManager
 from rich.console import Console
 
 
